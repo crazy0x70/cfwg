@@ -8,7 +8,7 @@ A lightweight and efficient Cloudflare WARP SOCKS5 proxy powered by Docker.
 
 Before deployment, ensure the host environment meets the following requirements:
 
-*   **Linux Docker environment** with `/dev/net/tun` support.
+*   **Linux Docker environment** with kernel `WireGuard` support.
 *   The container must be granted `CAP_NET_ADMIN` privileges.
 *   A persistent volume for storing **WARP** state data.
 *   Host-level network connectivity to **Cloudflare** and the **WARP API**.
@@ -31,8 +31,6 @@ services:
       - ALL
     cap_add:
       - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
     sysctls:
       net.ipv6.conf.all.disable_ipv6: "0"
     tmpfs:
@@ -96,7 +94,6 @@ If the output contains `warp=on`, the connection is correctly routed via WARP.
 | `PROXY_PUBLIC_HOST` | `127.0.0.1` | Public host returned for UDP Associate |
 | `PROXY_PUBLIC_PORT` | `1080` | Public port returned for UDP Associate |
 | `HEALTHCHECK_URL` | `http://127.0.0.1:9090/readyz` | Health check and listener address |
-| `WARP_TUN_DEVICE_PATH` | `/dev/net/tun` | Path to TUN device |
 
 ### Authentication and Protocol Variables
 
@@ -132,7 +129,9 @@ The service provides the following HTTP endpoints:
 
 ## Troubleshooting
 
-*   **Service starts but proxy fails:** Ensure `/dev/net/tun` exists and `NET_ADMIN` is enabled. Verify volume mounts and host-level connectivity to Cloudflare.
+*   **Docker fails before the container starts with `/dev/net/tun` not found:** remove the `--device /dev/net/tun:/dev/net/tun` mapping. `cfwg` uses kernel `WireGuard`, not a TUN device node.
+*   **Service starts but proxy fails:** Ensure the host kernel supports `WireGuard`, `NET_ADMIN` is enabled, and host-level connectivity to Cloudflare is available.
 *   **Authentication errors:** Both `uname` and `upwd` are mandatory if authentication is enabled.
 *   **IPv6 configuration:** Set `proxy-stack` to `4` or `6`, or leave empty for dual-stack.
+*   **IPv4-only / IPv6-only deployments:** the built-in connectivity probe now tries both the IPv4 and IPv6 Cloudflare trace endpoints by default, so single-stack deployments can still become ready without manual probe overrides.
 *   **WARP status:** Use `docker exec cfwg ip -6 addr show dev wgcf` or inspect `state.json` to verify network status.

@@ -6,7 +6,7 @@
 
 在部署前，请确保宿主机满足以下要求：
 
-*   **Linux Docker 环境**：支持 `/dev/net/tun`。
+*   **Linux Docker 环境**：宿主机内核具备 `WireGuard` 支持。
 *   **容器权限**：必须具备 `CAP_NET_ADMIN` 权限。
 *   **数据持久化**：挂载卷用于存放 WARP 状态数据。
 *   **网络连接**：宿主机可正常访问 Cloudflare 及 WARP API。
@@ -29,8 +29,6 @@ services:
       - ALL
     cap_add:
       - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
     sysctls:
       net.ipv6.conf.all.disable_ipv6: "0"
     tmpfs:
@@ -94,7 +92,6 @@ curl --proxy socks5://127.0.0.1:1080 -g -H 'Host: cloudflare.com' 'http://[2606:
 | `PROXY_PUBLIC_HOST` | `127.0.0.1` | UDP Associate 返回的公网地址 |
 | `PROXY_PUBLIC_PORT` | `1080` | UDP Associate 返回的公网端口 |
 | `HEALTHCHECK_URL` | `http://127.0.0.1:9090/readyz` | 健康检查及监听地址 |
-| `WARP_TUN_DEVICE_PATH` | `/dev/net/tun` | TUN 设备路径 |
 
 ### 认证与协议变量
 
@@ -130,7 +127,9 @@ volumes:
 
 ## 常见问题排查
 
-*   **容器启动但代理不通**：检查宿主机 `/dev/net/tun` 是否存在，是否添加了 `NET_ADMIN` 权限，并确认卷挂载路径及网络连通性。
+*   **Docker 在容器启动前就报 `/dev/net/tun` 不存在**：删除 `--device /dev/net/tun:/dev/net/tun` 映射。`cfwg` 使用的是内核 `WireGuard`，并不依赖 TUN 设备节点。
+*   **容器启动但代理不通**：检查宿主机内核是否支持 `WireGuard`，容器是否具备 `NET_ADMIN` 权限，以及宿主机到 Cloudflare 的网络连通性。
 *   **认证失败**：确认 `uname` 与 `upwd` 是否成对配置。
 *   **IPv6 配置**：配置 `proxy-stack` 为 `4` 或 `6`，或者保持空值（默认为双栈）。请勿使用字符串 `dual`。
+*   **仅 IPv4 或仅 IPv6 部署**：内置连通性探测现在会默认同时尝试 Cloudflare 的 IPv4 与 IPv6 trace 端点，因此单栈部署无需额外改 probe 配置也能进入 ready。
 *   **确认 WARP 状态**：使用 `docker exec cfwg ip -6 addr show dev wgcf` 或检查 `state.json` 文件查看网络详情。

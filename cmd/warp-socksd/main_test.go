@@ -118,7 +118,6 @@ func TestRunWithEnv_StartsRuntimeAndWritesArtifacts(t *testing.T) {
 	stateDir := t.TempDir()
 	runtimeDir := filepath.Join(stateDir, "runtime")
 	socks5ConfigPath := filepath.Join(runtimeDir, "socks5.json")
-	tunDevicePath := writeFakeTunDevice(t)
 	healthURL := "http://" + pickFreeAddress(t) + "/readyz"
 	originalWarpAPIClientFactory := newWarpAPIClientFunc
 	originalLegacyWGManagerFactory := newLegacyWGManagerFunc
@@ -167,8 +166,6 @@ func TestRunWithEnv_StartsRuntimeAndWritesArtifacts(t *testing.T) {
 				return socks5ConfigPath
 			case "HEALTHCHECK_URL":
 				return healthURL
-			case "WARP_TUN_DEVICE_PATH":
-				return tunDevicePath
 			default:
 				return ""
 			}
@@ -308,16 +305,6 @@ func TestRunWithEnv_ServeSOCKS5SubcommandUsesConfiguredSOCKS5Upstream(t *testing
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for socks5 child shutdown")
 	}
-}
-
-func writeFakeTunDevice(t *testing.T) string {
-	t.Helper()
-
-	devicePath := filepath.Join(t.TempDir(), "tun")
-	if err := os.WriteFile(devicePath, []byte("fake-tun"), 0o644); err != nil {
-		t.Fatalf("write fake tun device: %v", err)
-	}
-	return devicePath
 }
 
 func writeFakeWireGuardConfig(t *testing.T, stateDir string) {

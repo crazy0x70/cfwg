@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,12 +10,18 @@ import (
 	"time"
 )
 
+type httpProbeTarget struct {
+	URL        string
+	HostHeader string
+}
+
 type httpProber struct {
-	URL           string
-	HostHeader    string
-	Client        *http.Client
-	RetryWindow   time.Duration
-	RetryInterval time.Duration
+	URL             string
+	HostHeader      string
+	FallbackTargets []httpProbeTarget
+	Client          *http.Client
+	RetryWindow     time.Duration
+	RetryInterval   time.Duration
 }
 
 func (p httpProber) Check(ctx context.Context) error {
@@ -34,7 +41,7 @@ func (p httpProber) Check(ctx context.Context) error {
 	deadline := time.Now().Add(retryWindow)
 	var lastErr error
 	for {
-		lastErr = p.checkOnce(ctx, client)
+		lastErr = p.checkTargets(ctx, client)
 		if lastErr == nil {
 			return nil
 		}
@@ -50,13 +57,49 @@ func (p httpProber) Check(ctx context.Context) error {
 	}
 }
 
-func (p httpProber) checkOnce(ctx context.Context, client *http.Client) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+func (p httpProber) targets() []httpProbeTarget {
+	targets := []httpProbeTarget{{
+		URL:        p.URL,
+		HostHeader: p.HostHeader,
+	}}
+	targets = append(targets, p.FallbackTargets...)
+
+	filtered := targets[:0]
+	for _, target := range targets {
+		if target.URL == "" {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+
+	return filtered
+}
+
+func (p httpProber) checkTargets(ctx context.Context, client *http.Client) error {
+	targets := p.targets()
+	if len(targets) == 0 {
+		return errors.New("probe url is required")
+	}
+
+	var lastErr error
+	for _, target := range targets {
+		if err := p.checkOnce(ctx, client, target); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	return lastErr
+}
+
+func (p httpProber) checkOnce(ctx context.Context, client *http.Client, target httpProbeTarget) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL, nil)
 	if err != nil {
 		return fmt.Errorf("create probe request: %w", err)
 	}
-	if p.HostHeader != "" {
-		req.Host = p.HostHeader
+	if target.HostHeader != "" {
+		req.Host = target.HostHeader
 	}
 
 	resp, err := client.Do(req)

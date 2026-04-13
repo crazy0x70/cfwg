@@ -20,7 +20,8 @@ const backendLegacy warpBackend = "legacy"
 const (
 	defaultWarpAPIBaseURL   = "https://api.cloudflareclient.com"
 	defaultLegacyDeviceName = "wgcf"
-	defaultLegacyProbeURL   = "http://1.1.1.1/cdn-cgi/trace"
+	defaultLegacyProbeURLV4 = "http://1.1.1.1/cdn-cgi/trace"
+	defaultLegacyProbeURLV6 = "http://[2606:4700:4700::1111]/cdn-cgi/trace"
 	defaultLegacyProbeHost  = "cloudflare.com"
 )
 
@@ -30,10 +31,25 @@ var newProberFunc = func(serverAddr, username, password, probeURL, probeHostHead
 	if err != nil {
 		return nil, err
 	}
+
+	if probeURL != "" {
+		return httpProber{
+			URL:        probeURL,
+			HostHeader: probeHostHeader,
+			Client:     client,
+		}, nil
+	}
+
 	return httpProber{
-		URL:        valueOrDefault(probeURL, defaultLegacyProbeURL),
-		HostHeader: valueOrDefault(probeHostHeader, defaultLegacyProbeHost),
-		Client:     client,
+		URL:        defaultLegacyProbeURLV4,
+		HostHeader: defaultLegacyProbeHost,
+		FallbackTargets: []httpProbeTarget{
+			{
+				URL:        defaultLegacyProbeURLV6,
+				HostHeader: defaultLegacyProbeHost,
+			},
+		},
+		Client: client,
 	}, nil
 }
 var newWarpAPIClientFunc = func(baseURL string, httpClient *http.Client) warpAPI {

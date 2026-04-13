@@ -43,7 +43,6 @@ type runtimeConfig struct {
 	LegacyProbeURL   string
 	LegacyProbeHost  string
 	LegacyMTU        int
-	TunDevicePath    string
 }
 
 func main() {
@@ -152,10 +151,9 @@ func loadRuntimeConfig(getenv func(string) string) (runtimeConfig, error) {
 		HealthListenAddr: healthListenAddr,
 		WarpAPIBaseURL:   defaultWarpAPIBaseURL,
 		LegacyDeviceName: defaultLegacyDeviceName,
-		LegacyProbeURL:   valueOrDefault(getenv("WARP_CONNECTIVITY_PROBE_URL"), defaultLegacyProbeURL),
-		LegacyProbeHost:  valueOrDefault(getenv("WARP_CONNECTIVITY_PROBE_HOST"), defaultLegacyProbeHost),
+		LegacyProbeURL:   getenv("WARP_CONNECTIVITY_PROBE_URL"),
+		LegacyProbeHost:  getenv("WARP_CONNECTIVITY_PROBE_HOST"),
 		LegacyMTU:        wgdev.DefaultMTU,
-		TunDevicePath:    valueOrDefault(getenv("WARP_TUN_DEVICE_PATH"), "/dev/net/tun"),
 	}, nil
 }
 

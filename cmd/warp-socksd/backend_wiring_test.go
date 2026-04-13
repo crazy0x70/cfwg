@@ -41,11 +41,20 @@ func TestBuildRuntimeDependencies_WiresLegacyBackend(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected legacy prober, got %T", deps.Prober)
 	}
-	if prober.URL != defaultLegacyProbeURL {
-		t.Fatalf("expected legacy probe url %q, got %q", defaultLegacyProbeURL, prober.URL)
+	if prober.URL != defaultLegacyProbeURLV4 {
+		t.Fatalf("expected legacy probe url %q, got %q", defaultLegacyProbeURLV4, prober.URL)
 	}
 	if prober.HostHeader != defaultLegacyProbeHost {
 		t.Fatalf("expected legacy probe host header %q, got %q", defaultLegacyProbeHost, prober.HostHeader)
+	}
+	if len(prober.FallbackTargets) != 1 {
+		t.Fatalf("expected exactly one fallback probe target, got %#v", prober.FallbackTargets)
+	}
+	if prober.FallbackTargets[0].URL != defaultLegacyProbeURLV6 {
+		t.Fatalf("expected ipv6 fallback probe url %q, got %q", defaultLegacyProbeURLV6, prober.FallbackTargets[0].URL)
+	}
+	if prober.FallbackTargets[0].HostHeader != defaultLegacyProbeHost {
+		t.Fatalf("expected ipv6 fallback probe host header %q, got %q", defaultLegacyProbeHost, prober.FallbackTargets[0].HostHeader)
 	}
 	if prober.Client == nil {
 		t.Fatal("expected legacy prober to include a proxied http client")
@@ -110,6 +119,9 @@ func TestBuildRuntimeDependencies_WiresLegacyProbeOverrides(t *testing.T) {
 	}
 	if prober.HostHeader != "trace.example.com" {
 		t.Fatalf("expected overridden probe host, got %q", prober.HostHeader)
+	}
+	if len(prober.FallbackTargets) != 0 {
+		t.Fatalf("expected explicit probe override to disable fallbacks, got %#v", prober.FallbackTargets)
 	}
 }
 
