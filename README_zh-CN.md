@@ -17,7 +17,9 @@
 
 ### Docker Compose（推荐）
 
-创建 `docker-compose.yml` 文件：
+仓库现在内置了可直接使用的 `compose.yaml`，并且默认 Docker 网络名固定为 `cfwg`，不会再变成类似 `test_default` 这样的目录派生名称。
+
+如果你需要查看或自定义，当前内容如下：
 
 ```yaml
 services:
@@ -42,6 +44,12 @@ services:
       PROXY_PUBLIC_PORT: 1080
     volumes:
       - ./data:/var/lib/warp-socks
+    networks:
+      - default
+
+networks:
+  default:
+    name: cfwg
 ```
 
 启动服务：
@@ -57,6 +65,10 @@ docker compose up -d
 docker compose ps
 docker compose logs -f
 ```
+
+创建出来的 Docker 网络名会是：
+
+- `cfwg`
 
 ## 验证
 
@@ -132,4 +144,5 @@ volumes:
 *   **认证失败**：确认 `uname` 与 `upwd` 是否成对配置。
 *   **IPv6 配置**：配置 `proxy-stack` 为 `4` 或 `6`，或者保持空值（默认为双栈）。请勿使用字符串 `dual`。
 *   **仅 IPv4 或仅 IPv6 部署**：内置连通性探测现在会默认同时尝试 Cloudflare 的 IPv4 与 IPv6 trace 端点，因此单栈部署无需额外改 probe 配置也能进入 ready。
+*   **`docker compose` 创建出了 `test_default` 之类的网络名**：请直接使用仓库自带的 `compose.yaml`，或者在你自己的 compose 文件里显式设置 `networks.default.name: cfwg`。
 *   **确认 WARP 状态**：使用 `docker exec cfwg ip -6 addr show dev wgcf` 或检查 `state.json` 文件查看网络详情。

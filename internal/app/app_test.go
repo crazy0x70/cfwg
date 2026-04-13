@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -172,6 +173,123 @@ func TestApp_RunStartsDependenciesInOrder(t *testing.T) {
 
 	if len(readyStates) != 2 || readyStates[0] != true || readyStates[1] != false {
 		t.Fatalf("expected ready transitions [true false], got %v", readyStates)
+	}
+}
+
+func TestApp_RunEmitsLifecycleLogs(t *testing.T) {
+	var (
+		logsMu sync.Mutex
+		logs   []string
+	)
+
+	originalLogf := runtimeLogf
+	runtimeLogf = func(format string, args ...any) {
+		logsMu.Lock()
+		defer logsMu.Unlock()
+		logs = append(logs, fmt.Sprintf(format, args...))
+	}
+	t.Cleanup(func() {
+		runtimeLogf = originalLogf
+	})
+
+	started := make(chan struct{}, 1)
+
+	app, err := NewApp(Dependencies{
+		ConfigLoader: func() (config.Config, error) {
+			return config.Config{ProxyStack: config.StackDual}, nil
+		},
+		StateLoader: func() (state.State, error) {
+			return state.State{SchemaVersion: 1}, nil
+		},
+		StateSaver: func(state.State) error {
+			return nil
+		},
+		Bootstrapper: bootstrapperStub{
+			ensureDevice: func(ctx context.Context, cfg config.Config, current state.State) (state.State, error) {
+				return state.State{
+					SchemaVersion: 1,
+					DeviceID:      "device-1",
+					AccessToken:   "token-1",
+					PrivateKey:    "private-1",
+					IPv4:          "172.16.0.2",
+					IPv6:          "2606:4700::2",
+					PeerEndpoint:  "engage.cloudflareclient.com:2408",
+				}, nil
+			},
+		},
+		NetworkManager: networkManagerStub{
+			apply: func(ctx context.Context, cfg config.Config, current state.State) error {
+				return nil
+			},
+			cleanup: func(ctx context.Context) error {
+				return nil
+			},
+		},
+		ProxyConfigWriter: func(cfg config.Config) (string, error) {
+			return "/tmp/proxy.json", nil
+		},
+		Supervisor: supervisorStub{
+			start: func(ctx context.Context, path string) error {
+				started <- struct{}{}
+				return nil
+			},
+			stop: func() error {
+				return nil
+			},
+			done: func() <-chan error {
+				ch := make(chan error)
+				return ch
+			},
+		},
+		Prober: proberStub{
+			check: func(context.Context) error {
+				return nil
+			},
+		},
+		Status: &statusStub{setReady: func(bool) {}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- app.Run(ctx)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for supervisor start")
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected clean shutdown, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for app shutdown")
+	}
+
+	logsMu.Lock()
+	defer logsMu.Unlock()
+	joined := strings.Join(logs, "\n")
+	for _, want := range []string{
+		"cfwg: starting runtime",
+		"cfwg: warp device ready",
+		"cfwg: proxy runtime started",
+		"cfwg: runtime is ready",
+		"cfwg: runtime stopped cleanly",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected logs to contain %q, got:\n%s", want, joined)
+		}
 	}
 }
 

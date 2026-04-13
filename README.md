@@ -19,7 +19,9 @@ For IPv6 support, confirm that both the host and Docker are configured for IPv6 
 
 ### Docker Compose (Recommended)
 
-Create a `docker-compose.yml` file:
+The repository now ships a ready-to-use `compose.yaml`. It pins the default Docker network name to `cfwg` instead of directory-derived names such as `test_default`.
+
+If you want to inspect or customize it, the current content is:
 
 ```yaml
 services:
@@ -44,6 +46,12 @@ services:
       PROXY_PUBLIC_PORT: 1080
     volumes:
       - ./data:/var/lib/warp-socks
+    networks:
+      - default
+
+networks:
+  default:
+    name: cfwg
 ```
 
 Start the service:
@@ -59,6 +67,10 @@ Monitor status:
 docker compose ps
 docker compose logs -f
 ```
+
+The created Docker network will be:
+
+- `cfwg`
 
 ## Verification
 
@@ -134,4 +146,5 @@ The service provides the following HTTP endpoints:
 *   **Authentication errors:** Both `uname` and `upwd` are mandatory if authentication is enabled.
 *   **IPv6 configuration:** Set `proxy-stack` to `4` or `6`, or leave empty for dual-stack.
 *   **IPv4-only / IPv6-only deployments:** the built-in connectivity probe now tries both the IPv4 and IPv6 Cloudflare trace endpoints by default, so single-stack deployments can still become ready without manual probe overrides.
+*   **`docker compose` creates `test_default` or another directory-based network name:** use the bundled `compose.yaml`, or ensure your own compose file sets `networks.default.name: cfwg`.
 *   **WARP status:** Use `docker exec cfwg ip -6 addr show dev wgcf` or inspect `state.json` to verify network status.

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 
 	"cfwg/internal/config"
 	"cfwg/internal/state"
 )
+
+var runtimeLogf = log.Printf
 
 type ConfigLoader func() (config.Config, error)
 type StateLoader func() (state.State, error)
@@ -83,23 +86,28 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	runtimeLogf("cfwg: starting runtime stack=%s auth_enabled=%t", cfg.ProxyStack, cfg.Auth.Enabled)
 
 	loadedState, err := a.deps.StateLoader()
 	if err != nil {
 		return fmt.Errorf("load state: %w", err)
 	}
+	runtimeLogf("cfwg: loaded state has_device=%t has_ipv4=%t has_ipv6=%t", loadedState.DeviceID != "", loadedState.IPv4 != "", loadedState.IPv6 != "")
 
 	currentState, err := a.deps.Bootstrapper.EnsureDevice(ctx, cfg, loadedState)
 	if err != nil {
 		return fmt.Errorf("bootstrap device: %w", err)
 	}
+	runtimeLogf("cfwg: warp device ready ipv4=%s ipv6=%s endpoint=%s", printableValue(currentState.IPv4), printableValue(currentState.IPv6), printableValue(currentState.PeerEndpoint))
 
 	if err := a.deps.StateSaver(currentState); err != nil {
 		return fmt.Errorf("save state: %w", err)
 	}
+	runtimeLogf("cfwg: persisted runtime state")
 
 	if err := a.runStartedRuntime(ctx, cfg, currentState); err != nil {
 		if shouldRetryWithFreshState(loadedState, err) {
+			runtimeLogf("cfwg: runtime failed with persisted state, retrying with fresh registration: %v", err)
 			freshState, freshErr := a.deps.Bootstrapper.EnsureDevice(ctx, cfg, state.State{})
 			if freshErr != nil {
 				return errors.Join(err, fmt.Errorf("recover with fresh state: bootstrap device: %w", freshErr))
@@ -107,6 +115,7 @@ func (a *App) Run(ctx context.Context) error {
 			if freshSaveErr := a.deps.StateSaver(freshState); freshSaveErr != nil {
 				return errors.Join(err, fmt.Errorf("recover with fresh state: save state: %w", freshSaveErr))
 			}
+			runtimeLogf("cfwg: fresh warp device ready ipv4=%s ipv6=%s endpoint=%s", printableValue(freshState.IPv4), printableValue(freshState.IPv6), printableValue(freshState.PeerEndpoint))
 			if retryErr := a.runStartedRuntime(ctx, cfg, freshState); retryErr != nil {
 				return errors.Join(err, fmt.Errorf("recover with fresh state: %w", retryErr))
 			}
@@ -122,15 +131,18 @@ func (a *App) runStartedRuntime(ctx context.Context, cfg config.Config, currentS
 	if err := a.deps.NetworkManager.Apply(ctx, cfg, currentState); err != nil {
 		return fmt.Errorf("apply network: %w", err)
 	}
+	runtimeLogf("cfwg: network configured stack=%s endpoint=%s", cfg.ProxyStack, printableValue(currentState.PeerEndpoint))
 
 	proxyConfigPath, err := a.deps.ProxyConfigWriter(cfg)
 	if err != nil {
 		return fmt.Errorf("write proxy config: %w", err)
 	}
+	runtimeLogf("cfwg: proxy config rendered path=%s", proxyConfigPath)
 
 	if err := a.deps.Supervisor.Start(ctx, proxyConfigPath); err != nil {
 		return fmt.Errorf("start proxy runtime: %w", err)
 	}
+	runtimeLogf("cfwg: proxy runtime started")
 
 	if err := a.deps.Prober.Check(ctx); err != nil {
 		_ = a.deps.Supervisor.Stop()
@@ -139,11 +151,14 @@ func (a *App) runStartedRuntime(ctx context.Context, cfg config.Config, currentS
 	}
 
 	a.deps.Status.SetReady(true)
+	runtimeLogf("cfwg: runtime is ready")
 	var runErr error
 	select {
 	case <-ctx.Done():
+		runtimeLogf("cfwg: shutdown requested")
 	case err := <-a.deps.Supervisor.Done():
 		if err != nil {
+			runtimeLogf("cfwg: proxy runtime exited unexpectedly: %v", err)
 			runErr = fmt.Errorf("proxy runtime exited unexpectedly: %w", err)
 		}
 	}
@@ -161,6 +176,7 @@ func (a *App) runStartedRuntime(ctx context.Context, cfg config.Config, currentS
 	if cleanupErr != nil {
 		return fmt.Errorf("cleanup network: %w", cleanupErr)
 	}
+	runtimeLogf("cfwg: runtime stopped cleanly")
 
 	return nil
 }
@@ -170,4 +186,11 @@ func shouldRetryWithFreshState(loadedState state.State, err error) bool {
 		return false
 	}
 	return loadedState.DeviceID != "" && loadedState.AccessToken != "" && loadedState.PrivateKey != ""
+}
+
+func printableValue(value string) string {
+	if value == "" {
+		return "n/a"
+	}
+	return value
 }
