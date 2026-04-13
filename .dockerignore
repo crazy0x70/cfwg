@@ -1,0 +1,14 @@
+.git
+.github
+.tmp
+.cache
+.docker-tmp
+.serena
+data
+docs
+scripts
+warp-socksd
+*.log
+*.tmp
+*.swp
+.DS_Store

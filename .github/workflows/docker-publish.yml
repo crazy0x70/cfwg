@@ -1,0 +1,130 @@
+name: docker-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without leading v, for example 0.0.1
+        required: true
+        type: string
+  pull_request:
+
+env:
+  IMAGE_NAME: ghcr.io/crazy0x70/cfwg
+  BUILD_CONTEXT: ${{ github.workspace }}/build-context
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate version input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          printf '%s\n' "${{ inputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "version must look like 0.0.1 and must not include leading v" >&2
+            exit 1
+          }
+
+      - name: Resolve project root
+        id: project_root
+        shell: bash
+        run: |
+          set -u
+          echo "workspace=${GITHUB_WORKSPACE}"
+          echo "build_context=${BUILD_CONTEXT}"
+          echo "--- workspace tree (depth 4) ---"
+          find "${GITHUB_WORKSPACE}" -maxdepth 4 -mindepth 1 | sort || true
+
+          project_root=""
+          while IFS= read -r dockerfile; do
+            dir=$(dirname "${dockerfile}")
+            if [ -f "${dir}/go.mod" ] \
+              && [ -f "${dir}/go.sum" ] \
+              && [ -d "${dir}/cmd/warp-socksd" ] \
+              && [ -d "${dir}/internal" ]; then
+              project_root="${dir}"
+              break
+            fi
+          done < <(find "${GITHUB_WORKSPACE}" -maxdepth 6 -type f -name Dockerfile | sort)
+
+          if [ -z "${project_root}" ]; then
+            echo "Could not resolve project root under ${GITHUB_WORKSPACE}" >&2
+            exit 1
+          fi
+
+          echo "Resolved project root: ${project_root}"
+          echo "path=${project_root}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare build context
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_root='${{ steps.project_root.outputs.path }}'
+          echo "project_root=${project_root}"
+          echo "build_context=${BUILD_CONTEXT}"
+
+          rm -rf "${BUILD_CONTEXT}"
+          mkdir -p "${BUILD_CONTEXT}"
+
+          cp "${project_root}/Dockerfile" "${BUILD_CONTEXT}/Dockerfile"
+          cp "${project_root}/go.mod" "${BUILD_CONTEXT}/go.mod"
+          cp "${project_root}/go.sum" "${BUILD_CONTEXT}/go.sum"
+          cp "${project_root}/README.md" "${BUILD_CONTEXT}/README.md" || true
+          cp "${project_root}/LICENSE" "${BUILD_CONTEXT}/LICENSE" || true
+          cp "${project_root}/.dockerignore" "${BUILD_CONTEXT}/.dockerignore" || true
+          cp -R "${project_root}/cmd" "${BUILD_CONTEXT}/cmd"
+          cp -R "${project_root}/internal" "${BUILD_CONTEXT}/internal"
+
+          echo "--- build context tree (depth 3) ---"
+          find "${BUILD_CONTEXT}" -maxdepth 3 -mindepth 1 | sort
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build PR validation image
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.BUILD_CONTEXT }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha,scope=mainline
+          cache-to: type=gha,mode=max,scope=mainline
+
+      - name: Build and publish release image
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.BUILD_CONTEXT }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:v${{ inputs.version }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha,scope=mainline
+          cache-to: type=gha,mode=max,scope=mainline

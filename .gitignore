@@ -1,0 +1,7 @@
+.tmp/
+.cache/
+.docker-tmp/
+.serena/
+data/
+/warp-socksd
+.DS_Store
